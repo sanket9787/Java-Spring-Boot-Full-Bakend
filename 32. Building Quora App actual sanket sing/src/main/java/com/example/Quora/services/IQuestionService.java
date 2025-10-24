@@ -9,9 +9,10 @@ import reactor.core.publisher.Mono;
 public interface IQuestionService {
     public Mono<QuestionResponseDTO> createQuestion(QuestionRequestDTO questionRequestDTO);
 
-    public Mono<QuestionResponseDTO> getQuestionById(String id);
-
     public Flux<QuestionResponseDTO> searchQuestions(String searchTerm, int offset, int size);
 
-    Flux<QuestionResponseDTO> getAllQuestions(String cursor, int size);
+    public Flux<QuestionResponseDTO> getAllQuestions(String cursor, int size);
+
+    //whenever somebody is invoked this we will update the corresponding view count  asynchronously
+    public Mono<QuestionResponseDTO> getQuestionById(String id);
 }

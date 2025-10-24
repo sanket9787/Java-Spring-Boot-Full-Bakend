@@ -3,7 +3,9 @@ package com.example.Quora.services;
 import com.example.Quora.adapter.QuestionAdapter;
 import com.example.Quora.dto.QuestionRequestDTO;
 import com.example.Quora.dto.QuestionResponseDTO;
+import com.example.Quora.events.ViewCountEvent;
 import com.example.Quora.models.Question;
+import com.example.Quora.producers.KafkaEventProducer;
 import com.example.Quora.repositories.QuestionRepository;
 import com.example.Quora.utils.CursorUtils;
 import lombok.RequiredArgsConstructor;
@@ -16,11 +18,12 @@ import reactor.core.publisher.Mono;
 import java.time.LocalDateTime;
 
 @Service
-@RequiredArgsConstructor //contruction based injection
+@RequiredArgsConstructor //construction based injection
 public class QuestionService implements IQuestionService{
 
     private final QuestionRepository questionRepository;
 
+    private final KafkaEventProducer kafkaEventProducer;
     @Override
     public Mono<QuestionResponseDTO> createQuestion(QuestionRequestDTO questionRequestDTO) {
 
@@ -45,8 +48,13 @@ public class QuestionService implements IQuestionService{
     public Mono<QuestionResponseDTO> getQuestionById(String id) {
         Mono<Question> questionMono = questionRepository.findById(id);
         Mono<QuestionResponseDTO> questionResponseDTOMono = questionMono.map(QuestionAdapter::toquestionResponseDTO);
-        return questionResponseDTOMono;
-
+        return questionResponseDTOMono
+                .doOnError(error -> System.out.println("Error fetching question: " + error))
+                .doOnSuccess(response -> {
+                    System.out.println("Question fetched successfully: " + response);
+                    ViewCountEvent viewCountEvent = new ViewCountEvent(id, "question", LocalDateTime.now());
+                    kafkaEventProducer.publishViewCountEvent(viewCountEvent);
+                });
     }
 
     @Override
@@ -62,13 +70,18 @@ public class QuestionService implements IQuestionService{
     public Flux<QuestionResponseDTO> getAllQuestions(String cursor, int size) {
         Pageable pageable = PageRequest.of(0, size);
 
+        System.out.println("DEBUG: Cursor received: " + cursor);
+        System.out.println("DEBUG: Is valid cursor: " + CursorUtils.isValidCursor(cursor));
+
         if(!CursorUtils.isValidCursor(cursor)){
-            return questionRepository.findTop10ByOrderByCreatedAtAsc()
+            System.out.println("DEBUG: Using findAll for first page");
+            return questionRepository.findAll()
                     .take(size)
                     .map(QuestionAdapter::toquestionResponseDTO)
                     .doOnComplete(() -> System.out.println("Question fetched successfully"))
                     .doOnError(error -> System.out.println("Error fetching questions: " + error));
         } else{
+            System.out.println("DEBUG: Using cursor-based pagination");
             LocalDateTime cursorTimeStamp = CursorUtils.parseCursor(cursor);
             //here this is similar to this sql command
             // SELECT * FROM TABLE WHERE created_at > cursor limit 10 ORDER BY created_at ASC;
